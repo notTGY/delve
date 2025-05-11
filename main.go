@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"log"
 	"os"
-  "time"
+	"time"
 
 	"github.com/joho/godotenv"
 	"gopkg.in/telebot.v4"
 
-  "github.com/nottgy/delve/llm"
-  "github.com/nottgy/delve/memory"
+	"github.com/nottgy/delve/llm"
+	"github.com/nottgy/delve/memory"
 )
 
 func main() {
@@ -22,7 +22,7 @@ func main() {
 
 	bot, err := telebot.NewBot(telebot.Settings{
 		Token:  botToken,
-		Poller: &telebot.LongPoller{Timeout: 10*time.Second},
+		Poller: &telebot.LongPoller{Timeout: 10 * time.Second},
 	})
 	if err != nil {
 		log.Fatal("Error creating bot:", err)
@@ -30,42 +30,51 @@ func main() {
 
 	bot.Handle(telebot.OnText, func(c telebot.Context) error {
 		userMessage := c.Text()
-    user := c.Sender()
-    s := fmt.Sprintf("%s: %s\n", user.Username, userMessage)
+		user := c.Sender()
+		s := fmt.Sprintf("%s: %s\n", user.Username, userMessage)
 
-    dialog, err := memory.Query(user.ID)
+		dialog, err := memory.Query(user.ID)
 		if err != nil {
 			log.Println("Memory error:", err)
 			return c.Send("Sorry, I couldn't process your request.")
 		}
 
-    messages := append(
-      dialogToMessages(dialog),
-      userMessage,
-    )
+		messages := append(
+			dialogToMessages(dialog),
+			userMessage,
+		)
 
-    embStart := time.Now()
-		_, err = llm.Embed(messages)
+		embStart := time.Now()
+		embs, err := llm.Embed(messages)
 		if err != nil {
-			log.Println("OpenAI error:", err)
+			log.Println("Embedding error:", err)
 			return c.Send("Sorry, I couldn't process your request.")
 		}
-    s += fmt.Sprintf("Embed %d in %s\n", len(messages), time.Since(embStart))
+		s += fmt.Sprintf("Embed %d in %s\n", len(messages), time.Since(embStart))
 
-    genStart := time.Now()
-		resp, err := llm.Message(userMessage)
+		topKStart := time.Now()
+		lastEmbIdx := len(embs) - 1
+		relevantDialogIdxs, err := llm.TopK(embs[:lastEmbIdx], embs[lastEmbIdx], 3)
 		if err != nil {
-			log.Println("OpenAI error:", err)
+			log.Println("TopK error:", err)
 			return c.Send("Sorry, I couldn't process your request.")
 		}
-    s += fmt.Sprintf("Gen in %s\n", time.Since(genStart))
+		s += fmt.Sprintf("TopK in %s\n", time.Since(topKStart))
 
-    err = memory.Save(user.ID, userMessage, resp)
+		genStart := time.Now()
+		resp, err := llm.Message(userMessage, relevantDialogIdxs, dialog)
+		if err != nil {
+			log.Println("Generation error:", err)
+			return c.Send("Sorry, I couldn't process your request.")
+		}
+		s += fmt.Sprintf("Gen in %s\n", time.Since(genStart))
+
+		err = memory.Save(user.ID, userMessage, resp)
 		if err != nil {
 			log.Println("Memory error:", err)
 		}
 
-    fmt.Printf("%s------------------\n", s)
+		fmt.Printf("%s------------------\n", s)
 		return c.Send(resp)
 	})
 
@@ -74,13 +83,13 @@ func main() {
 }
 
 func dialogToMessages(dialog []memory.Dialog) []string {
-  messages := []string{}
-  for _, d := range dialog {
-    messages = append(
-      messages,
-      d.UserMessage,
-      d.AssistantMessage,
-    )
-  }
-  return messages
+	messages := []string{}
+	for _, d := range dialog {
+		messages = append(
+			messages,
+			d.UserMessage,
+			d.AssistantMessage,
+		)
+	}
+	return messages
 }
