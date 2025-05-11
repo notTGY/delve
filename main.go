@@ -1,15 +1,15 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
-	"strings"
+  "time"
 
 	"github.com/joho/godotenv"
-	"github.com/sashabaranov/go-openai"
 	"gopkg.in/telebot.v3"
+
+  "github.com/nottgy/delve/llm"
 )
 
 func main() {
@@ -27,40 +27,28 @@ func main() {
 		log.Fatal("Error creating bot:", err)
 	}
 
-	config := openai.DefaultConfig("ollama")
-	config.BaseURL = "http://localhost:11434/v1/"
-	client := openai.NewClientWithConfig(config)
-
 	bot.Handle(telebot.OnText, func(c telebot.Context) error {
 		userMessage := c.Text()
+    user := c.Sender().Username
+    s := fmt.Sprintf("%s: %s\n", user, userMessage)
 
-		resp, err := client.CreateChatCompletion(
-			context.Background(),
-			openai.ChatCompletionRequest{
-				Model: "qwen3:0.6b",
-				Messages: []openai.ChatCompletionMessage{
-					{
-						Role:    openai.ChatMessageRoleSystem,
-						Content: "You are a helpful AI assistant, called Jenny Tull. You were trained by company @gamma_code",
-					},
-					{
-						Role:    openai.ChatMessageRoleUser,
-						Content: userMessage,
-					},
-				},
-			},
-		)
+    embStart := time.Now()
+		_, err := llm.Embed([]string{userMessage})
 		if err != nil {
 			log.Println("OpenAI error:", err)
 			return c.Send("Sorry, I couldn't process your request.")
 		}
+    s += fmt.Sprintf("Embed in %s\n", time.Since(embStart))
 
-		response := resp.Choices[0].Message.Content
-		_, answer, is_thinking := strings.Cut(response, "</think>")
-		if is_thinking {
-			return c.Send(strings.TrimSpace(answer))
+    genStart := time.Now()
+		resp, err := llm.Message(userMessage)
+		if err != nil {
+			log.Println("OpenAI error:", err)
+			return c.Send("Sorry, I couldn't process your request.")
 		}
-		return c.Send(response)
+    s += fmt.Sprintf("Gen in %s\n", time.Since(genStart))
+    fmt.Printf("%s------------------\n", s)
+		return c.Send(resp)
 	})
 
 	fmt.Println("Bot is running...")
