@@ -7,9 +7,10 @@ import (
   "time"
 
 	"github.com/joho/godotenv"
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 
   "github.com/nottgy/delve/llm"
+  "github.com/nottgy/delve/memory"
 )
 
 func main() {
@@ -21,7 +22,7 @@ func main() {
 
 	bot, err := telebot.NewBot(telebot.Settings{
 		Token:  botToken,
-		Poller: &telebot.LongPoller{Timeout: 10},
+		Poller: &telebot.LongPoller{Timeout: 10*time.Second},
 	})
 	if err != nil {
 		log.Fatal("Error creating bot:", err)
@@ -29,8 +30,10 @@ func main() {
 
 	bot.Handle(telebot.OnText, func(c telebot.Context) error {
 		userMessage := c.Text()
-    user := c.Sender().Username
-    s := fmt.Sprintf("%s: %s\n", user, userMessage)
+    user := c.Sender()
+    s := fmt.Sprintf("%s: %s\n", user.Username, userMessage)
+
+    memory.Query(struct{ID int64}{user.ID})
 
     embStart := time.Now()
 		_, err := llm.Embed([]string{userMessage})
