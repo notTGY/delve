@@ -33,15 +33,24 @@ func main() {
     user := c.Sender()
     s := fmt.Sprintf("%s: %s\n", user.Username, userMessage)
 
-    memory.Query(struct{ID int64}{user.ID})
+    dialog, err := memory.Query(user.ID)
+		if err != nil {
+			log.Println("Memory error:", err)
+			return c.Send("Sorry, I couldn't process your request.")
+		}
+
+    messages := append(
+      dialogToMessages(dialog),
+      userMessage,
+    )
 
     embStart := time.Now()
-		_, err := llm.Embed([]string{userMessage})
+		_, err = llm.Embed(messages)
 		if err != nil {
 			log.Println("OpenAI error:", err)
 			return c.Send("Sorry, I couldn't process your request.")
 		}
-    s += fmt.Sprintf("Embed in %s\n", time.Since(embStart))
+    s += fmt.Sprintf("Embed %d in %s\n", len(messages), time.Since(embStart))
 
     genStart := time.Now()
 		resp, err := llm.Message(userMessage)
@@ -50,10 +59,28 @@ func main() {
 			return c.Send("Sorry, I couldn't process your request.")
 		}
     s += fmt.Sprintf("Gen in %s\n", time.Since(genStart))
+
+    err = memory.Save(user.ID, userMessage, resp)
+		if err != nil {
+			log.Println("Memory error:", err)
+		}
+
     fmt.Printf("%s------------------\n", s)
 		return c.Send(resp)
 	})
 
 	fmt.Println("Bot is running...")
 	bot.Start()
+}
+
+func dialogToMessages(dialog []memory.Dialog) []string {
+  messages := []string{}
+  for _, d := range dialog {
+    messages = append(
+      messages,
+      d.UserMessage,
+      d.AssistantMessage,
+    )
+  }
+  return messages
 }
